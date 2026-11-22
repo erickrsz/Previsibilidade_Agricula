@@ -1,5 +1,5 @@
-MySQL 5.7.32-35-log | banco: tcc2026
-13 tabelas
+MySQL 5.7.44-48-log | banco: tcc2026
+12 tabelas
 
 ========================================================================
 TABELA BASE_MODELO  —  1,460 linhas
@@ -139,19 +139,17 @@ amostra (3 linhas):
 ========================================================================
 TABELA CONFIGURACAO_SAFRA  —  2 linhas
 ========================================================================
-5 colunas:
+4 colunas:
    id_config                          int(10) unsigned       NOT NULL  [PRI]
    id_regiao                          int(10) unsigned       NOT NULL  [MUL]
-   id_solo                            int(10) unsigned       NOT NULL  [MUL]
    id_cultura                         int(10) unsigned       NOT NULL  [MUL]
    data_plantio                       date                   NULL     
 chaves estrangeiras:
    id_cultura -> CULTURA.id_cultura
    id_regiao -> REGIAO.id_regiao
-   id_solo -> TIPO_SOLO.id_solo
 amostra (3 linhas):
-   id_config=2, id_regiao=1, id_solo=1, id_cultura=1, data_plantio=datetime.date(2026, 9, 21)
-   id_config=3, id_regiao=131, id_solo=5, id_cultura=2, data_plantio=datetime.date(2026, 10, 30)
+   id_config=2, id_regiao=1, id_cultura=1, data_plantio=datetime.date(2026, 9, 21)
+   id_config=3, id_regiao=131, id_cultura=2, data_plantio=datetime.date(2026, 10, 30)
 
 ========================================================================
 TABELA CULTURA  —  3 linhas
@@ -241,7 +239,7 @@ amostra (3 linhas):
    id_clima=3, id_regiao=1, ano_mes=datetime.date(2023, 3, 1), dias_validos=31, dias_no_mes=31, cobertura=Decimal('1.00'), temp_media=Decimal('23.07'), temp_max_media=Decimal('29.85') ...
 
 ========================================================================
-TABELA LEITURA_IOT  —  726 linhas
+TABELA LEITURA_IOT  —  1,320 linhas
 ========================================================================
 6 colunas:
    id_leitura                         bigint(20) unsigned    NOT NULL  [PRI]
@@ -338,25 +336,3 @@ TABELA SENSOR_IOT  —  1 linhas
 chaves estrangeiras: nenhuma
 amostra (3 linhas):
    id_sensor=0, modelo='ESP32', fabricante='Espressif', protocolo_comunicacao='ESP-NOW/MQTT', frequencia_amostragem_min=5, status_operacional='ATIVO'
-
-========================================================================
-TABELA TIPO_SOLO  —  10 linhas
-========================================================================
-12 colunas:
-   id_solo                            int(10) unsigned       NOT NULL  [PRI]
-   nome_solo                          varchar(150)           NOT NULL  [MUL]
-   ordem_solo                         varchar(100)           NULL     
-   textura                            varchar(100)           NULL     
-   fonte                              varchar(255)           NULL     
-   retencao_agua                      tinyint(3) unsigned    NULL     
-   drenagem                           tinyint(3) unsigned    NULL     
-   aptidao_graos                      tinyint(3) unsigned    NULL     
-   profundidade                       tinyint(3) unsigned    NULL     
-   risco_erosao                       tinyint(3) unsigned    NULL     
-   culturas_predominantes             varchar(255)           NULL     
-   descricao                          text                   NULL     
-chaves estrangeiras: nenhuma
-amostra (3 linhas):
-   id_solo=1, nome_solo='Latossolo Vermelho', ordem_solo='Latossolo', textura='Argilosa', fonte=None, retencao_agua=4, drenagem=5, aptidao_graos=5 ...
-   id_solo=2, nome_solo='Latossolo Amarelo', ordem_solo='Latossolo', textura='Média/Argilosa', fonte=None, retencao_agua=4, drenagem=5, aptidao_graos=4 ...
-   id_solo=3, nome_solo='Argissolo Vermelho-Amarelo', ordem_solo='Argissolo', textura='Média/Argilosa', fonte=None, retencao_agua=3, drenagem=4, aptidao_graos=4 ...

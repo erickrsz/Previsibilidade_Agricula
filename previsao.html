@@ -231,7 +231,7 @@ details.mais > div{padding:0 22px 18px}
   <section id="aba-prev" class="aba">
     <div class="cartao">
       <h2>Previsão de rendimento para uma safra da base</h2>
-      <div class="sub">O modelo estima o rendimento médio do município a partir do clima de cada estádio do ciclo.
+      <div class="sub">O modelo estima o rendimento médio do município a partir da média histórica do município e do clima de cada estádio do ciclo.
         As safras disponíveis são as que passaram pelos filtros do treino (cobertura do ciclo ≥ 80% e faixa plausível de rendimento).</div>
       <div class="form" style="margin-top:12px">
         <label>Cultura<select id="sel-cult"></select></label>
@@ -770,39 +770,53 @@ async function carregarDesempenho() {
   const alvo = $("#des");
   try {
     const d = await api("/api/desempenho");
-    const ganho = (base, mod) => 100 * (base - mod) / base;
-    const gH = ganho(d.espacial.media_historica, d.espacial.elastic_net);
-    const gI = ganho(d.espacial.media_indexada, d.espacial.elastic_net);
-    const gT = ganho(d.temporal.media_historica, d.temporal.elastic_net);
+    const E = d.espacial, T = d.temporal, Q = d.safra_de_quebra, A = d.quartis_anomalia;
+    // variação do erro do modelo contra o método de comparação, como no TCC: negativa = o modelo erra menos
+    const varErro = (base, mod) => 100 * (mod.rmse - base.rmse) / base.rmse;
     const sinal = v => (v >= 0 ? "+" : "−") + fmt(Math.abs(v), 1) + "%";
-    const q = d.safra_de_quebra;
+    const vH = varErro(E.media_historica, E.elastic_net), vI = varErro(E.media_indexada, E.elastic_net);
+    const vT = varErro(T.media_historica, T.elastic_net);
+    const linha = (nome, m, forte) => m ? `<tr${forte ? ' style="font-weight:600"' : ""}><td>${nome}</td>
+      <td class="n">${fmt(m.rmse, 2)}</td><td class="n">${fmt(m.mae, 2)}</td><td class="n">${fmt(m.r2, 3)}</td></tr>` : "";
+    const ROT_QUEBRA = {"média histórica": "Média histórica do município",
+      "média INDEXADA pelo ano": "Média histórica indexada pelo ano",
+      "Elastic Net — espacial": "Elastic Net · esquema espacial", "Elastic Net — temporal": "Elastic Net · esquema temporal"};
+    const maeIdx = E.media_indexada.mae < E.elastic_net.mae
+      ? ` No MAE, a média indexada fica um pouco à frente (${fmt(E.media_indexada.mae, 2)} contra ${fmt(E.elastic_net.mae, 2)})).` : "";
     alvo.innerHTML = `<div class="cartao">
       <h2>Onde o modelo ganha e onde perde</h2>
-      <div class="sub">RMSE em sacas por hectare — menor é melhor. Calculado agora a partir de ${esc(d.fonte)}.</div>
+      <div class="sub">Erro em sacas por hectare: RMSE e MAE, menor é melhor; R², maior é melhor. Calculado agora a partir de ${esc(d.fonte)}.</div>
       <div class="duas">
-        <div><h3>Município sem histórico (validação espacial, ${d.espacial.n} safras)</h3>
+        <div><h3>Município fora do treino, em safra já observada na região (validação espacial, ${E.elastic_net.n} safras)</h3>
+          <table>
+            <tr><th>Método</th><th class="n">RMSE</th><th class="n">MAE</th><th class="n">R²</th></tr>
+            ${linha("Elastic Net — ciclo completo", E.elastic_net, true)}
+            ${linha("Random Forest — ciclo completo", E.random_forest)}
+            ${linha("Média histórica indexada pelo ano", E.media_indexada)}
+            ${linha("Média histórica do município", E.media_historica)}
+            ${linha("Elastic Net — apenas clima", E.apenas_clima)}
+          </table>
+          <div class="nota">Erro do modelo: ${sinal(vH)} contra a média histórica e ${sinal(vI)} contra a média indexada pelo ano,
+            a comparação mais exigente, que representa o produtor que acompanha o comportamento da safra na região.${maeIdx}
+            O Random Forest erra um pouco menos, mas não mostra o peso de cada variável; por isso o modelo da calculadora é o Elastic Net.</div></div>
+        <div><h3>Safra seguinte, ainda não colhida (validação temporal, ${T.elastic_net.n} safras)</h3>
           <table>
             <tr><th>Método</th><th class="n">RMSE</th></tr>
-            <tr><td>Elastic Net (ciclo completo)</td><td class="n">${fmt(d.espacial.elastic_net, 2)}</td></tr>
-            <tr><td>Média histórica do município</td><td class="n">${fmt(d.espacial.media_historica, 2)}</td></tr>
-            <tr><td>Média histórica indexada pelo ano</td><td class="n">${fmt(d.espacial.media_indexada, 2)}</td></tr>
+            <tr><td>Elastic Net — ciclo completo</td><td class="n">${fmt(T.elastic_net.rmse, 2)}</td></tr>
+            <tr><td>Média histórica do município</td><td class="n">${fmt(T.media_historica.rmse, 2)}</td></tr>
           </table>
-          <div class="nota">Ganho do modelo: ${sinal(gH)} sobre a média histórica e ${sinal(gI)} sobre a média indexada pelo ano,
-            que é a comparação justa (ela também sabe como está o ano na região).</div></div>
-        <div><h3>Próxima safra (validação temporal, ${d.temporal.n} safras)</h3>
-          <table>
-            <tr><th>Método</th><th class="n">RMSE</th></tr>
-            <tr><td>Elastic Net (ciclo completo)</td><td class="n">${fmt(d.temporal.elastic_net, 2)}</td></tr>
-            <tr><td>Média histórica do município</td><td class="n">${fmt(d.temporal.media_historica, 2)}</td></tr>
-          </table>
-          <div class="nota">Diferença do modelo: ${sinal(gT)}. ${gT < 0 ? "Aqui o modelo <b>perde</b> para o método tradicional." : ""}
-            Por isso a página não mostra previsão de rendimento para safras futuras.</div></div>
+          <div class="nota">Erro do modelo: ${sinal(vT)} contra a média histórica. ${vT > 0 ? "Aqui o modelo <b>perde</b> para o método tradicional." : ""}
+            ${A.sem_vantagem === A.n ? `Separando as previsões pelos ${A.n} quartis de anomalia climática, o modelo não teve vantagem em nenhum deles.` : `O modelo não teve vantagem em ${A.sem_vantagem} dos ${A.n} quartis de anomalia climática.`}
+            Por isso a calculadora mostra a média histórica ao lado da estimativa.</div></div>
       </div>
-      <h3>Safra de quebra (aba 2_safra_de_quebra)</h3>
-      <table><tr>${Object.entries(q[0] || {}).map(([k, v]) => `<th class="${typeof v === "number" ? "n" : ""}">${esc(k)}</th>`).join("")}</tr>
-        ${q.map(r => `<tr>${Object.values(r).map(v => `<td class="${typeof v === "number" ? "n" : ""}">${typeof v === "number" ? fmt(v, 2) : esc(v)}</td>`).join("")}</tr>`).join("")}</table>
-      <div class="nota">Escopo que os números sustentam: a ferramenta serve para estimar a safra em curso quando o ciclo já foi medido,
-        e para municípios sem histórico; não serve para projetar safras futuras.</div>
+      <h3>Quebra da soja no Rio Grande do Sul em 2022 (${Q.municipios} municípios)</h3>
+      <table style="max-width:560px"><tr><th>Método</th><th class="n">Rendimento (sacas/ha)</th></tr>
+        <tr style="font-weight:600"><td>Colhido (IBGE)</td><td class="n">${fmt(Q.colhido, 1)}</td></tr>
+        ${Q.metodos.map(r => `<tr><td>${esc(ROT_QUEBRA[r.metodo] || r.metodo)}</td><td class="n">${fmt(r.previsto, 1)}</td></tr>`).join("")}</table>
+      <div class="nota">No esquema espacial o modelo chegou perto do colhido porque o treino tinha outros municípios gaúchos daquele ano;
+        no temporal ele não antecipou a quebra. A média indexada acerta por construção: usa o rendimento colhido pelos outros municípios no mesmo ano.</div>
+      <div class="nota">Escopo que os números sustentam: a calculadora estima melhor que o método tradicional um município cujo comportamento regional
+        da safra já foi observado; com cinco safras de série, não supera o método tradicional ao prever uma safra nova.</div>
     </div>`;
   } catch (e) { alvo.innerHTML = `<div class="cartao erro">Erro ao ler o desempenho: ${esc(e.message)}</div>`; }
 }

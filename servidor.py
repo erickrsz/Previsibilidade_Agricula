@@ -385,7 +385,11 @@ def agregar_sensor(id_config, plantio, ciclo, hoje):
     mens, lc = pd.DataFrame(), pd.DataFrame()
     if len(l):
         l = numerico(l, exceto={"data_hora"})
-        l["data_hora"] = pd.to_datetime(l["data_hora"])
+        # leitura com data inválida (0000-00-00) fica fora, em vez de derrubar a aba
+        l["data_hora"] = pd.to_datetime(l["data_hora"], errors="coerce")
+        res["datas_invalidas"] = int(l["data_hora"].isna().sum())
+        l = l[l["data_hora"].notna()].reset_index(drop=True)
+        res["leituras"] = int(len(l))
         res["primeira"], res["ultima"] = l.data_hora.min(), l.data_hora.max()
         gaps = l.data_hora.diff().dt.total_seconds().dropna()
         res["intervalo_mediano_s"] = float(gaps.median()) if len(gaps) else None
@@ -716,27 +720,42 @@ def api_configuracoes(_q):
     return {"configuracoes": saida}
 
 
+ARQ_SO_CLIMA = "resultados_modelagem_so_clima.xlsx"   # opcional: linha "apenas clima" do Capítulo 4
+CASO_QUEBRA = {"UF": "RS", "ano_pam": 2022, "cultura_tcc": "Soja (em grão)"}   # o mesmo de robustez.py
+
+
 def api_desempenho(_q):
-    """Lido de robustez.xlsx na hora; RMSE recalculado aqui."""
+    """Lido de robustez.xlsx na hora; RMSE, MAE e R² recalculados aqui, como no Capítulo 4 do TCC."""
     p = pd.read_excel(ARQ_ROBUSTEZ, sheet_name="previsoes")
     y = p["rendimento_sacas_ha"].astype(float)
 
-    def rmse(col, mascara=None):
+    def met(col, mascara=None):
         ok = p[col].notna() if mascara is None else (p[col].notna() & mascara)
-        return float(np.sqrt(((p.loc[ok, col] - y[ok]) ** 2).mean())), int(ok.sum())
+        e = p.loc[ok, col].astype(float) - y[ok]
+        yy = y[ok]
+        return {"rmse": float(np.sqrt((e ** 2).mean())), "mae": float(e.abs().mean()),
+                "r2": float(1 - (e ** 2).sum() / ((yy - yy.mean()) ** 2).sum()), "n": int(ok.sum())}
 
-    esp_en, n_esp = rmse("prev_esp_en")
-    esp_hist, _ = rmse("base_hist")
-    esp_idx, _ = rmse("base_indexada")
     tem = p["prev_tmp_en"].notna()
-    tmp_en, n_tmp = rmse("prev_tmp_en")
-    tmp_hist, _ = rmse("base_hist", tem)
+    so_clima = None
+    if os.path.exists(ARQ_SO_CLIMA):
+        d = pd.read_excel(ARQ_SO_CLIMA, sheet_name="desempenho")
+        r = d[(d.esquema == "espacial") & (d.origem == "elastic_net") & (d.momento == "M3_completo")]
+        if len(r):
+            r = r.iloc[0]
+            so_clima = {"rmse": float(r.RMSE), "mae": float(r.MAE), "r2": float(r.R2), "n": int(r.n)}
+    an = pd.read_excel(ARQ_ROBUSTEZ, sheet_name="3_anomalia_climatica")
     quebra = pd.read_excel(ARQ_ROBUSTEZ, sheet_name="2_safra_de_quebra")
-    return {"fonte": ARQ_ROBUSTEZ + " (aba previsoes; RMSE calculado pelo servidor)",
-            "espacial": {"n": n_esp, "elastic_net": esp_en, "media_historica": esp_hist,
-                         "media_indexada": esp_idx},
-            "temporal": {"n": n_tmp, "elastic_net": tmp_en, "media_historica": tmp_hist},
-            "safra_de_quebra": quebra.to_dict(orient="records")}
+    caso = p[(p.UF == CASO_QUEBRA["UF"]) & (p.ano_pam == CASO_QUEBRA["ano_pam"]) &
+             (p.cultura_tcc == CASO_QUEBRA["cultura_tcc"])]
+    return {"fonte": ARQ_ROBUSTEZ + " (aba previsoes; métricas calculadas pelo servidor)",
+            "espacial": {"elastic_net": met("prev_esp_en"), "random_forest": met("prev_esp_rf"),
+                         "media_indexada": met("base_indexada"), "media_historica": met("base_hist"),
+                         "apenas_clima": so_clima},
+            "temporal": {"elastic_net": met("prev_tmp_en"), "media_historica": met("base_hist", tem)},
+            "quartis_anomalia": {"n": int(len(an)), "sem_vantagem": int((an["ganho_pct"] < 0).sum())},
+            "safra_de_quebra": {"municipios": int(len(caso)), "colhido": float(caso.rendimento_sacas_ha.mean()),
+                                "metodos": quebra[["metodo", "previsto"]].to_dict(orient="records")}}
 
 
 # ======================================================= calculadora ========
@@ -965,7 +984,7 @@ def api_sensor_ao_vivo(q):
     idade = None if e.idade_s is None or vazio(e.idade_s) else int(e.idade_s)
     intervalo = None
     if len(rec) >= 2:
-        h = pd.to_datetime(rec.data_hora).sort_values()
+        h = pd.to_datetime(rec.data_hora, errors="coerce").dropna().sort_values()
         dif = h.diff().dt.total_seconds().dropna()
         dif = dif[dif > 0]
         if len(dif):
